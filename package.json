@@ -1,5 +1,5 @@
 {
-  "name": "ffc-redis-model",
+  "name": "ffc-model",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -10,7 +10,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcd": "^1.0.0",
+    "crc": "^3.8.0",
+    "protobufjs": "^6.10.1",
     "redis": "^3.0.2",
+    "shelljs": "^0.8.4",
     "yargs": "^16.0.3"
   }
 }
