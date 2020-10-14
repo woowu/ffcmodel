@@ -12,6 +12,7 @@
   "dependencies": {
     "bcd": "^1.0.0",
     "crc": "^3.8.0",
+    "proper-lockfile": "^4.1.1",
     "protobufjs": "^6.10.1",
     "redis": "^3.0.2",
     "shelljs": "^0.8.4",

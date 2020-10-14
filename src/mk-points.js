@@ -8,65 +8,38 @@ const protobuf = require('protobufjs');
 const { crc32 } = require('crc');
 const shell = require('shelljs');
 
+/*---------------------------------------------------------------------------*/
+
 const startTime = new Date('2020-01-22T00:00+00:00')
-const intvl = 15;   /* minutes */
-const metricsNum = 79;
 const dataRoot = path.join(process.env['HOME'], '.local/share/ffc/measurement');
+
+/*---------------------------------------------------------------------------*/
 
 /* Keys
  * ====
  *
- * fm:np                number of points
- * fm:np:<day>          number of points in a day
- * fm:tm                sorted array of days
- * fm:m:tm:<meter>      sorted array of days of a meter
- * fm:m:lgv:<meter>     last good value of metrics of a meter
+ * fm:tm                sorted set of days in which we have data
+ * fm:m                 sorted set of meters
+ * fm:m:tm:<meter>      sorted set of days in which the meter have data
+ * fm:m:lgv:<meter>     last good value of metrics of the meter
  */
+
+/*---------------------------------------------------------------------------*/
 
 const calcDayMark = time => {
     const y = time.getUTCFullYear();
     const m = time.getUTCMonth() + 1;
     const d = time.getUTCDate();
-    const mark = (y - 2000) * 10000 + m * 100 + d;
-    const score = y * 10000 + m * 100 + d - 20100101;   /* make the number smaller */
+    const mark = y * 10000 + m * 100 + d;
+
+    /* make the score smaller */
+    const score = Math.trunc((new Date(Date.UTC(y, m - 1, d)) - new Date('2020-01-01T00:00:00Z'))
+        / 1000 / 3600 / 24);
 
     return {mark, score};
 }
 
-const saveLastGoodValue = (meter, time, cb) => {
-    const args = ['fm:m:lgv:' + meter, 'time', time / 1000];
-
-    for (var i = 0; i < metricsNum; ++i) {
-        args.push((i + 1).toString());
-        var value = (Math.random() * 1000).toFixed(3);
-        if (Math.trunc(Math.random() * 10) == 1)    /* should it has a flag */
-            value = value + '*';
-        args.push(value);
-    }
-
-    client.hmset(args, cb);
-};
-
-const markTime = (meter, time, cb) => {
-    const {mark, score} = calcDayMark(time);
-
-    client.zadd(['fm:m:tm:' + meter, mark, score], err => {
-        if (err) return cb(err);
-        client.zadd(['fm:tm', mark, score], cb);
-    });
-};
-
-const incCounters = (meter, time, cb) => {
-    client.incr('fm:np', err => {
-        if (err) return cb(err);
-
-        const mark = calcDayMark(time).mark;
-        client.incr('fm:np:' + mark, cb);
-    });
-};
-
-const saveMeasurement = (time, meter, measure, cb) => {
-
+const saveMeasurement = (meter, time, measure, cb) => {
     const serializeMeasure = cb => {
         protobuf.load('data/measurement.proto', (err, root) => {
             if (err) return cb(err);
@@ -90,6 +63,7 @@ const saveMeasurement = (time, meter, measure, cb) => {
         const dir = path.join(dataRoot, dayName.toString(), meter.toString());
         const pathname = path.join(dir, (time.valueOf() / 1000).toString()) + '.dat';
         const tmpname = pathname + '.tmp';
+
         fs.access(pathname, err => {
             const newFile = err != null;
             shell.mkdir('-p', dir);
@@ -107,71 +81,232 @@ const saveMeasurement = (time, meter, measure, cb) => {
     });
 };
 
-const newMeasurement = (time, meter, cb) => {
-    const measure = {
-        meter,
-        timestamp: parseInt(time.valueOf() / 1000),
+const saveLastGoodValue = (meter, measure, cb) => {
+    const args = ['fm:m:lgv:' + meter, 'timestamp', measure.timestamp];
+
+    measure.metrics.forEach(m => {
+        args.push('status' + m.id, m.status);
+        args.push('value' + m.id, m.value);
+        args.push('scale' + m.id, m.scale);
+        if (m.hasOwnProperty('timestamp'))
+            args.push('timestamp' + m.id, m.timestamp);
+    });
+    client.hmset(args, cb);
+};
+
+const markTime = (meter, time, cb) => {
+    const {mark, score} = calcDayMark(time);
+
+    client.zadd(['fm:m:tm:' + meter, score, mark], err => {
+        if (err) return cb(err);
+        client.zadd(['fm:tm', score, mark], cb);
+    });
+};
+
+const addMeter = (meter, cb) => {
+    client.zadd(['fm:m', meter, meter], cb);
+};
+
+const removeDay = (dayMark, cb) => {
+    console.log('remove day ' + dayMark);
+
+    const walkMeters = (list, cb) => {
+        const meter = list.pop();
+        if (! meter) return cb(null);
+        client.zrem(['fm:m:tm:' + meter, dayMark], cb);
     };
 
-    saveMeasurement(time, meter, measure, (err, newFile) => {
+    client.zrem(['fm:tm', dayMark], err => {
+        client.zrange(['fm:m', 0, -1], (err, meterList) => {
+            if (err || ! meterList || ! meterList.length) return cb(err);
+            walkMeters(meterList, cb);
+        });
+    });
+};
+
+/**
+ * Remove any day which has is greater than that day indicated
+ * by the given (dayMark, score).
+ */
+const removeFutureDays = (dayMark, score, cb) => {
+    const backWalkDayList = (list, cb) => {
+        const dayMark = list.pop();
+        if (! dayMark) return cb(null);
+
+        removeDay(dayMark, err => {
+            if (err) return cb(null);
+
+            /* to avoid stack overflow */
+            setTimeout(() => {
+                backWalkDayList(list, cb);
+            }, 1);
+        });
+    };
+
+    client.zrangebyscore(['fm:tm', '(' + score, '+inf'], (err, reply) => {
+        if (err) return cb(err);
+        if (! reply || ! reply.length) return cb(null);
+        backWalkDayList(reply, cb);
+    });
+};
+
+const saveMeasureAndUpdateIndex = (meter, time, measure, cb) => {
+    /* TODO: acquire read lock. */
+
+    saveMeasurement(meter, time, measure, (err, newFile) => {
         if (err) return cb(err);
 
-        saveLastGoodValue(meter, time, err => {
+        saveLastGoodValue(meter, measure, err => {
             if (err) return cb(err);
             markTime(meter, time, err => {
                 if (err || ! newFile) return cb(err);
-                incCounters(meter, time, cb);
+                addMeter(meter, cb);
             });
         });
     });
 };
 
-const measureAtTime = (time, meter, cb) => {
-    if  (meter == argv.m) return cb(null);
+const houseKeeping = (lastDataTime, cb) => {
+    /* TODO: acquire write lock. */
 
-    console.log('time ' + time.toISOString());
-    newMeasurement(time, meter, err => {
-        if (err) return cb(err);
-        measureAtTime(time, meter + 1, cb);
+    const {dayMark, score} = calcDayMark(lastDataTime);
+
+    removeFutureDays(dayMark, score, err => {
+        cb(null);
     });
 };
 
-const walkTime = (time, tickCnt, cb) => {
-    if (tickCnt == argv.n) return cb(null, tickCnt);
+/*---------------------------------------------------------------------------*/
 
-    /* in order to avoid stack overflow */
-    setTimeout(() => {
-        measureAtTime(time, 0, err => {
-            if (err) return cb(err, tickCnt);
-            time.setMinutes(time.getMinutes() + intvl)
-            walkTime(time, tickCnt + 1, cb);
-        });
-    }, 1);
+const putMeasurement = (meter, time, measure, cb) => {
+    saveMeasureAndUpdateIndex(meter, time, measure, err => {
+        if (err) return err;
+        houseKeeping(time, cb);
+    });
 };
 
+/*---------------------------------------------------------------------------*/
+
+var jsonOut;
+
 const argv = require('yargs') 
-    .option('n', {
-        describe: 'number of time points',
+    .option('t', {
+        alias: 'ticks',
+        describe: 'number of time ticks to run',
         demandOption: true,
         nargs: 1,
     })
-    .option('m', {
+    .option('e', {
+        alias: 'meters',
         describe: 'number of meters',
         demandOption: true,
+        nargs: 1,
+    })
+    .option('i', {
+        alias: 'intvl',
+        describe: 'measuring interval in minutes',
+        nargs: 1,
+        default: 15,
+    })
+    .option('m', {
+        alias: 'smallMetrics',
+        describe: 'number of small metrics of each meter',
+        nargs: 1,
+        default: 59,
+    })
+    .option('M', {
+        alias: 'bigMetrics',
+        describe: 'number of big metrics of each meter',
+        nargs: 1,
+        default: 20,
+    })
+    .option('d', {
+        alias: 'activeDays',
+        describe: 'number of days to keep day in index',
+        nargs: 1,
+        default: 10,
+    })
+    .option('j', {
+        alias: 'json',
+        describe: 'save metrics json in a file for reference/debug',
         nargs: 1,
     })
     .argv;
 
 const client = redis.createClient();
+var measuresCnt = 0;
 
 client.on('error', err => {
-    console.error(err);
+    console.error(err.message);
 });
+
+const newMeasurement = (meter, time, cb) => {
+    const measure = {
+        meter,
+        timestamp: parseInt(time.valueOf() / 1000),
+        metrics: [],
+    };
+
+    for (var i = 0; i < argv.smallMetrics + argv.bigMetrics; ++i) {
+        measure.metrics[i] = {
+            id: i + 1,
+            status: 0,
+            /* random +- integer with 1 to 4 digits */
+            value: Math.trunc(Math.pow(10, 4) * Math.random())
+                - Math.pow(10, 4) / 2 + 1,
+            /* -5 to 5 */
+            scale: Math.trunc(11 * Math.random()) - 5,
+        };
+        if (i >= argv.smallMetrics)
+            measure.metrics[i].timestamp =
+                time.valueOf() / 1000 -
+                Math.trunc(3600 * Math.random());
+    }
+    if (jsonOut)
+        jsonOut.write((measuresCnt ? ',\n' : '')
+            + JSON.stringify(measure, null, 2));
+
+    putMeasurement(meter, time, measure, err => {
+        ++measuresCnt;
+        cb(err);
+    });
+};
+
+const measureAtTime = (meter, time, cb) => {
+    if  (meter == argv.meters) return cb(null);
+
+    console.log('time ' + time.toISOString());
+    newMeasurement(meter, time, err => {
+        if (err) return cb(err);
+        measureAtTime(meter + 1, time, cb);
+    });
+};
+
+const walkTime = (time, tickCnt, cb) => {
+    if (tickCnt == argv.ticks) return cb(null, tickCnt);
+
+    measureAtTime(0, time, err => {
+        if (err) return cb(err, tickCnt);
+        time.setMinutes(time.getMinutes() + argv.intvl)
+
+        /* to avoid stack overflow */
+        setTimeout(() => {
+            walkTime(time, tickCnt + 1, cb);
+        }, 1);
+    });
+};
+
+if (argv.j) {
+    jsonOut = fs.createWriteStream(argv.json);
+    jsonOut.write('[\n');
+}
 
 walkTime(startTime, 0, (err, tickCnt) => {
     client.quit();
+    if (jsonOut) jsonOut.end('\n]');
+
     if (err)
         console.error(err.message);
     else
-        console.log(`data genereated on ttl ${tickCnt} ticks`);
+        console.log(`ttl ${tickCnt} ticks`);
 });

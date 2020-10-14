@@ -1,6 +1,15 @@
 syntax = "proto3";
 
 message measurement {
-    uint32 meter = 1;       /* meter identity */
-    uint32 timestamp = 2;   /* actual measuring time in Unix Epoc seconds */
+    uint32 meter = 1;           /* meter identity */
+    uint32 timestamp = 2;       /* actual measuring time in Unix Epoc seconds */
+
+    message metric {
+        uint32 id = 1;          /* identity of metric */
+        int32 status = 2;       /* data of the metric value */
+        int64 value = 3;        /* metric value in integer */
+        int32 scale = 4;        /* real value = value * 10^scale */
+        uint32 timestamp = 5;   /* time accompanying with the value */
+    }
+    repeated metric metrics = 3;
 }
