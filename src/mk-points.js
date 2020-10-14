@@ -10,8 +10,8 @@ const shell = require('shelljs');
 
 /*---------------------------------------------------------------------------*/
 
-const startTime = new Date('2020-01-22T00:00+00:00')
 const dataRoot = path.join(process.env['HOME'], '.local/share/ffc/measurement');
+var activeDays = 7;
 
 /*---------------------------------------------------------------------------*/
 
@@ -26,6 +26,10 @@ const dataRoot = path.join(process.env['HOME'], '.local/share/ffc/measurement');
 
 /*---------------------------------------------------------------------------*/
 
+/**
+ * A daymark is easy to remeber day name, which is a 8-digi integer, such as
+ * 20200101.
+ */
 const calcDayMark = time => {
     const y = time.getUTCFullYear();
     const m = time.getUTCMonth() + 1;
@@ -38,6 +42,25 @@ const calcDayMark = time => {
 
     return {mark, score};
 }
+
+/**
+ * Measurement files are orgnized in below directory structure:
+ *
+ * dayDir/meterDayDir/active-files
+ * archive/archive-files
+ */
+const dayDir = dayMark => path.join(dataRoot, dayMark.toString());
+const meterDayDir = (meter, dayMark) => path.join(dayDir(dayMark), meter.toString());
+const archiveDir = () => path.join(dataRoot, 'archive');
+
+const measureFileName = (meter, measureTime) => {
+    const dir = meterDayDir(meter, calcDayMark(measureTime).mark);
+    const pathname = path.join(dir, (measureTime.valueOf() / 1000).toString())
+        + '.dat';
+    const tmpname = pathname + '.tmp';
+
+    return {pathname, tmpname};
+};
 
 const saveMeasurement = (meter, time, measure, cb) => {
     const serializeMeasure = cb => {
@@ -59,14 +82,11 @@ const saveMeasurement = (meter, time, measure, cb) => {
     };
 
     const wrFile = buf => {
-        const dayName = calcDayMark(time).mark;
-        const dir = path.join(dataRoot, dayName.toString(), meter.toString());
-        const pathname = path.join(dir, (time.valueOf() / 1000).toString()) + '.dat';
-        const tmpname = pathname + '.tmp';
+        const {pathname, tmpname} = measureFileName(meter, time);
 
         fs.access(pathname, err => {
             const newFile = err != null;
-            shell.mkdir('-p', dir);
+            shell.mkdir('-p', path.dirname(pathname));
             fs.writeFile(tmpname, buf, err => {
                 if (err) return cb(err); 
                 shell.mv('-f', tmpname, pathname);
@@ -107,13 +127,14 @@ const addMeter = (meter, cb) => {
     client.zadd(['fm:m', meter, meter], cb);
 };
 
-const removeDay = (dayMark, cb) => {
-    console.log('remove day ' + dayMark);
-
+const removeDayIndex = (dayMark, cb) => {
     const walkMeters = (list, cb) => {
         const meter = list.pop();
         if (! meter) return cb(null);
-        client.zrem(['fm:m:tm:' + meter, dayMark], cb);
+        client.zrem(['fm:m:tm:' + meter, dayMark], err => {
+            if (err) return cb(err);
+            walkMeters(list, cb);
+        });
     };
 
     client.zrem(['fm:tm', dayMark], err => {
@@ -124,11 +145,35 @@ const removeDay = (dayMark, cb) => {
     });
 };
 
+const removeDay = (dayMark, cb) => {
+    console.log('remove day ' + dayMark);
+    removeDayIndex(dayMark, err => {
+        if (err) console.error(err.message);
+        shell.rm('-rf', dayDir(dayMark));
+        cb(null);
+    });
+};
+
+const archiveDay = (dayMark, cb) => {
+    console.log('archive day ' + dayMark);
+
+    const sdir = path.basename(dayDir(dayMark));
+    const pdir = path.dirname(dayDir(dayMark));
+    const archiveName = path.join(archiveDir(), dayMark + '.tgz');
+
+    shell.mkdir('-p', archiveDir());
+    const cmdline = `tar czf ${archiveName} -C ${pdir} ${sdir}`;
+    console.log(cmdline);
+    shell.exec(cmdline);
+
+    removeDay(dayMark, cb);
+};
+
 /**
  * Remove any day which has is greater than that day indicated
  * by the given (dayMark, score).
  */
-const removeFutureDays = (dayMark, score, cb) => {
+const removeYetToComeDays = (dayMark, score, cb) => {
     const backWalkDayList = (list, cb) => {
         const dayMark = list.pop();
         if (! dayMark) return cb(null);
@@ -144,8 +189,7 @@ const removeFutureDays = (dayMark, score, cb) => {
     };
 
     client.zrangebyscore(['fm:tm', '(' + score, '+inf'], (err, reply) => {
-        if (err) return cb(err);
-        if (! reply || ! reply.length) return cb(null);
+        if (err || ! reply || ! reply.length) return cb(err);
         backWalkDayList(reply, cb);
     });
 };
@@ -166,13 +210,31 @@ const saveMeasureAndUpdateIndex = (meter, time, measure, cb) => {
     });
 };
 
+const archiveAgedDays = cb => {
+    const n = parseInt(process.env['FM_ACTIVE_DAYS']);
+    if  (! isNaN(n) && n > 0) activeDays = n;
+
+    const cutDayList = (list, cb) => {
+        if (! list.length) return cb(null);
+
+        const d = list.shift();
+        archiveDay(d, cb);
+    };
+
+    client.zrange(['fm:tm', 0, -1], (err, dayList) => {
+        if (err || ! dayList || dayList.length <= activeDays) return cb(err);
+        cutDayList(dayList.slice(0, dayList.length - activeDays), cb);
+    });
+};
+
 const houseKeeping = (lastDataTime, cb) => {
     /* TODO: acquire write lock. */
 
     const {dayMark, score} = calcDayMark(lastDataTime);
 
-    removeFutureDays(dayMark, score, err => {
-        cb(null);
+    removeYetToComeDays(dayMark, score, err => {
+        if (err) return cb(err);
+        archiveAgedDays(cb);
     });
 };
 
@@ -186,8 +248,10 @@ const putMeasurement = (meter, time, measure, cb) => {
 };
 
 /*---------------------------------------------------------------------------*/
+var client;
 
 var jsonOut;
+var measuresCnt = 0;
 
 const argv = require('yargs') 
     .option('t', {
@@ -212,33 +276,26 @@ const argv = require('yargs')
         alias: 'smallMetrics',
         describe: 'number of small metrics of each meter',
         nargs: 1,
-        default: 59,
+        default: 16,
     })
     .option('M', {
         alias: 'bigMetrics',
         describe: 'number of big metrics of each meter',
         nargs: 1,
-        default: 20,
-    })
-    .option('d', {
-        alias: 'activeDays',
-        describe: 'number of days to keep day in index',
-        nargs: 1,
-        default: 10,
+        default: 4,
     })
     .option('j', {
         alias: 'json',
         describe: 'save metrics json in a file for reference/debug',
         nargs: 1,
     })
+    .option('s', {
+        alias: 'startTime',
+        describe: 'time to start',
+        nargs: 1,
+        default: '2020-01-22T00:00Z',
+    })
     .argv;
-
-const client = redis.createClient();
-var measuresCnt = 0;
-
-client.on('error', err => {
-    console.error(err.message);
-});
 
 const newMeasurement = (meter, time, cb) => {
     const measure = {
@@ -296,10 +353,21 @@ const walkTime = (time, tickCnt, cb) => {
     });
 };
 
+const startTime = new Date(argv.startTime);
+if (isNaN(startTime.valueOf())) {
+    console.error('invalid time');
+    process.exit(1);
+}
+
 if (argv.j) {
     jsonOut = fs.createWriteStream(argv.json);
     jsonOut.write('[\n');
 }
+
+client = redis.createClient();
+client.on('error', err => {
+    console.error(err.message);
+});
 
 walkTime(startTime, 0, (err, tickCnt) => {
     client.quit();
