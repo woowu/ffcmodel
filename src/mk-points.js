@@ -6,7 +6,7 @@ const Model = require('../lib/ffcmodel');
 
 /*---------------------------------------------------------------------------*/
 var model;
-var jsonOut = {};
+var jsonOut;
 
 const argv = require('yargs') 
     .option('t', {
@@ -31,13 +31,13 @@ const argv = require('yargs')
         alias: 'smallMetrics',
         describe: 'number of small metrics of each meter',
         nargs: 1,
-        default: 16,
+        default: 20,
     })
     .option('M', {
         alias: 'bigMetrics',
         describe: 'number of big metrics of each meter',
         nargs: 1,
-        default: 4,
+        default: 6,
     })
     .option('j', {
         alias: 'json',
