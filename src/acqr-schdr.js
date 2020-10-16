@@ -1,11 +1,7 @@
 #!/usr/bin/node --harmony
 'use strict';
 
-const fs = require('fs');
-const Model = require('../lib/ffcmodel');
-
-var model;
-var jsonOut;
+const { spawn } = require('child_process');
 
 const argv = require('yargs') 
     .option('t', {
@@ -40,8 +36,7 @@ const argv = require('yargs')
     })
     .option('j', {
         alias: 'json',
-        describe: 'save metrics json in a file for reference/debug',
-        nargs: 1,
+        describe: 'save metrics in json files',
     })
     .option('s', {
         alias: 'startTime',
@@ -49,68 +44,49 @@ const argv = require('yargs')
         nargs: 1,
         default: '2020-01-22T00:00Z',
     })
+    .option('p', {
+        alias: 'parallelNumber',
+        describe: 'max number of devices can be acquired parallelly',
+        nargs: 1,
+        default: 24,
+    })
     .argv;
 
-const acquire = (devid, scheduleTime, realTime, cb) => {
-    const metrics = {
-        devid,
-        timestamp: parseInt(realTime.valueOf() / 1000),
-        metrics: [],
-    };
+const acquire = (devid, scheduleTime, cb) => {
+    const delay = Math.trunc(60 * Math.random());
+    const args = [
+        '-d', devid.toString(),
+        '-t', (scheduleTime.valueOf() / 1000).toString(),
+        '-l', delay.toString(),
+    ];
 
-    for (var i = 0; i < argv.smallMetrics + argv.bigMetrics; ++i) {
-        metrics.metrics[i] = {
-            id: i + 1,
-            status: 0,
-            /* random +- integer with 1 to 4 digits */
-            value: Math.trunc(Math.pow(10, 4) * Math.random())
-                - Math.pow(10, 4) / 2 + 1,
-            /* -5 to 5 */
-            scale: Math.trunc(11 * Math.random()) - 5,
-        };
-        if (i >= argv.smallMetrics)
-            metrics.metrics[i].timestamp =
-                realTime.valueOf() / 1000 -
-                Math.trunc(3600 * Math.random());
-    }
+    if (argv.m != null) args.push('-m', argv.m);
+    if (argv.M != null) args.push('-M', argv.m);
+    if (argv.json) args.push('-j');
 
-    if (jsonOut) {
-        if (! jsonOut.cnt) jsonOut.ws.write('[');
-        jsonOut.ws.write((jsonOut.cnt ? ',' : '')
-            + '\n' + JSON.stringify(metrics, null, 2));
-        ++jsonOut.cnt;
-    }
+    spawn('./bin/acqr', args)
+        .on('exit', code => {
+            cb(devid, code);
+        });
+}
 
-    model.putDevMetrics(devid, scheduleTime, realTime, metrics, err => {
-        cb(err);
-    });
-};
-
-const scheduleAcquire = (devid, time, cb) => {
-    if  (devid == argv.devices) return cb(null);
-
-    const delay = Math.trunc((argv.intvl * 60) * Math.random());
-    var realTime = new Date(time.valueOf() + delay * 1000);
-
+const scheduleAcquire = (time, cb) => {
     console.log('time ' + time.toISOString());
-    acquire(devid, time, realTime, err => {
-        if (err) return cb(err);
-        scheduleAcquire(devid + 1, time, cb);
-    });
-};
 
-const walkTime = (time, tickCnt, cb) => {
-    if (tickCnt == argv.ticks) return cb(null, tickCnt);
+    (function serialAndParallel(all, cb) {
+        const parallel = all.slice(0, argv.parallelNumber);
+        if (! parallel.length) return cb(null);
 
-    scheduleAcquire(0, time, err => {
-        if (err) return cb(err, tickCnt);
-        time.setMinutes(time.getMinutes() + argv.intvl)
-
-        /* to avoid stack overflow */
-        setTimeout(() => {
-            walkTime(time, tickCnt + 1, cb);
-        }, 1);
-    });
+        var nwait = parallel.length;
+        parallel.forEach(devid => {
+            acquire(devid, time, (devid, code) => {
+                if (code) console.log('acquire device ' + devid
+                    + ' exited with code ' + code);
+                if (! --nwait)
+                    serialAndParallel(all.slice(argv.parallelNumber), cb);
+            });
+        });
+    }([...Array(argv.devices).keys()], cb));
 };
 
 const startTime = new Date(argv.startTime);
@@ -119,20 +95,21 @@ if (isNaN(startTime.valueOf())) {
     process.exit(1);
 }
 
-if (argv.j)
-    jsonOut = {
-        ws: fs.createWriteStream(argv.json),
-        cnt: 0,
-    };
+(function walkTime(time, tickCnt, cb) {
+    if (tickCnt == argv.ticks) return cb(null, tickCnt);
 
-model = new Model();
+    scheduleAcquire(time, err => {
+        if (err) return cb(err, tickCnt);
+        time.setMinutes(time.getMinutes() + argv.intvl)
 
-walkTime(startTime, 0, (err, tickCnt) => {
-    model.stop();
-    if (jsonOut) jsonOut.ws.end('\n]');
-
+        /* to avoid stack overflow */
+        setTimeout(() => {
+            walkTime(time, tickCnt + 1, cb);
+        }, 1);
+    });
+}(startTime, 0, (err, tickCnt) => {
     if (err)
         console.error(err.message);
     else
         console.log(`ttl ${tickCnt} ticks`);
-});
+}));
