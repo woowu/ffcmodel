@@ -7,7 +7,7 @@ const shell = require('shelljs');
 const dateformat = require('dateformat');
 const Model = require('../lib/ffcmodel');
 
-const acquire = (devid, scheduleTime, realTime, json, cb) => {
+const acquire = (devid, nominalTime, realTime, json, cb) => {
     const metrics = {
         devid,
         timestamp: parseInt(realTime.valueOf() / 1000),
@@ -31,13 +31,13 @@ const acquire = (devid, scheduleTime, realTime, json, cb) => {
     }
 
     const model = new Model();
-    model.putDevMetrics(devid, scheduleTime, realTime, metrics, err => {
+    model.putDevMetrics(devid, nominalTime, metrics, err => {
         model.stop();
         if (err || ! json) return cb(err);
         const jsonName = path.join(process.env['HOME'], '.local/share/ffc/json',
             devid.toString()
             + '-'
-            + dateformat(scheduleTime, 'UTC:yyyymmddhhMMss')
+            + dateformat(nominalTime, 'UTC:yyyymmddhhMMss')
             + '.json');
         shell.mkdir('-p', path.dirname(jsonName));
         fs.writeFile(jsonName, JSON.stringify(metrics, null, 2), cb);
@@ -81,10 +81,10 @@ const argv = require('yargs')
     })
     .argv;
 
-const scheduleTime = new Date(argv.time * 1000);
-var realTime = new Date(scheduleTime.valueOf() + argv.delay * 1000);
+const nominalTime = new Date(argv.time * 1000);
+var realTime = new Date(nominalTime.valueOf() + argv.delay * 1000);
 
 console.log(`acquiring device ${argv.d}`);
-acquire(argv.d, scheduleTime, realTime, argv.json, err => {
+acquire(argv.d, nominalTime, realTime, argv.json, err => {
     if (err) console.error(err.message);
 });

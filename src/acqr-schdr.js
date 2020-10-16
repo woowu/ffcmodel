@@ -52,11 +52,11 @@ const argv = require('yargs')
     })
     .argv;
 
-const acquire = (devid, scheduleTime, cb) => {
+const acquire = (devid, nominalTime, cb) => {
     const delay = Math.trunc(60 * Math.random());
     const args = [
         '-d', devid.toString(),
-        '-t', (scheduleTime.valueOf() / 1000).toString(),
+        '-t', (nominalTime.valueOf() / 1000).toString(),
         '-l', delay.toString(),
     ];
 
@@ -70,23 +70,28 @@ const acquire = (devid, scheduleTime, cb) => {
         });
 }
 
-const scheduleAcquire = (time, cb) => {
-    console.log('time ' + time.toISOString());
+const scheduleAcquire = (nominalTime, cb) => {
+    console.log('time ' + nominalTime.toISOString());
 
+    const begin = new Date();
     (function serialAndParallel(all, cb) {
         const parallel = all.slice(0, argv.parallelNumber);
         if (! parallel.length) return cb(null);
 
         var nwait = parallel.length;
         parallel.forEach(devid => {
-            acquire(devid, time, (devid, code) => {
+            acquire(devid, nominalTime, (devid, code) => {
                 if (code) console.log('acquire device ' + devid
                     + ' exited with code ' + code);
                 if (! --nwait)
                     serialAndParallel(all.slice(argv.parallelNumber), cb);
             });
         });
-    }([...Array(argv.devices).keys()], cb));
+    }([...Array(argv.devices).keys()], err => {
+        const elapsed = new Date() - begin;
+        console.log(`acquired ${argv.devices} devices in ${elapsed} msecs. avg ${Math.trunc(elapsed/argv.devices)} msecs/dev`);
+        cb(err);
+    }));
 };
 
 const startTime = new Date(argv.startTime);
