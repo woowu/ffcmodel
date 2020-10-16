@@ -1,7 +1,7 @@
 syntax = "proto3";
 
-message measurement {
-    uint32 meter = 1;           /* meter identity */
+message DevMetrics {
+    uint32 devid = 1;           /* meter identity */
     uint32 timestamp = 2;       /* actual acquiring time in Unix Epoc seconds */
 
     message metric {

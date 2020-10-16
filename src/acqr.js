@@ -15,27 +15,27 @@ const argv = require('yargs')
         demandOption: true,
         nargs: 1,
     })
-    .option('e', {
-        alias: 'meters',
-        describe: 'number of meters',
+    .option('d', {
+        alias: 'devices',
+        describe: 'number of devices',
         demandOption: true,
         nargs: 1,
     })
     .option('i', {
         alias: 'intvl',
-        describe: 'measuring interval in minutes',
+        describe: 'acquisition interval in minutes',
         nargs: 1,
         default: 15,
     })
     .option('m', {
         alias: 'smallMetrics',
-        describe: 'number of small metrics of each meter',
+        describe: 'number of small metrics of each dev',
         nargs: 1,
         default: 20,
     })
     .option('M', {
         alias: 'bigMetrics',
-        describe: 'number of big metrics of each meter',
+        describe: 'number of big metrics of each dev',
         nargs: 1,
         default: 6,
     })
@@ -52,15 +52,15 @@ const argv = require('yargs')
     })
     .argv;
 
-const acquireFromMeter = (meter, scheduleTime, realTime, cb) => {
-    const measure = {
-        meter,
+const acquire = (devid, scheduleTime, realTime, cb) => {
+    const metrics = {
+        devid,
         timestamp: parseInt(realTime.valueOf() / 1000),
         metrics: [],
     };
 
     for (var i = 0; i < argv.smallMetrics + argv.bigMetrics; ++i) {
-        measure.metrics[i] = {
+        metrics.metrics[i] = {
             id: i + 1,
             status: 0,
             /* random +- integer with 1 to 4 digits */
@@ -70,7 +70,7 @@ const acquireFromMeter = (meter, scheduleTime, realTime, cb) => {
             scale: Math.trunc(11 * Math.random()) - 5,
         };
         if (i >= argv.smallMetrics)
-            measure.metrics[i].timestamp =
+            metrics.metrics[i].timestamp =
                 realTime.valueOf() / 1000 -
                 Math.trunc(3600 * Math.random());
     }
@@ -78,25 +78,25 @@ const acquireFromMeter = (meter, scheduleTime, realTime, cb) => {
     if (jsonOut) {
         if (! jsonOut.cnt) jsonOut.ws.write('[');
         jsonOut.ws.write((jsonOut.cnt ? ',' : '')
-            + '\n' + JSON.stringify(measure, null, 2));
+            + '\n' + JSON.stringify(metrics, null, 2));
         ++jsonOut.cnt;
     }
 
-    model.putMeasurement(meter, scheduleTime, realTime, measure, err => {
+    model.putDevMetrics(devid, scheduleTime, realTime, metrics, err => {
         cb(err);
     });
 };
 
-const scheduleAcquire = (meter, time, cb) => {
-    if  (meter == argv.meters) return cb(null);
+const scheduleAcquire = (devid, time, cb) => {
+    if  (devid == argv.devices) return cb(null);
 
     const delay = Math.trunc((argv.intvl * 60) * Math.random());
     var realTime = new Date(time.valueOf() + delay * 1000);
 
     console.log('time ' + time.toISOString());
-    acquireFromMeter(meter, time, realTime, err => {
+    acquire(devid, time, realTime, err => {
         if (err) return cb(err);
-        scheduleAcquire(meter + 1, time, cb);
+        scheduleAcquire(devid + 1, time, cb);
     });
 };
 
