@@ -4,7 +4,6 @@
 const fs = require('fs');
 const Model = require('../lib/ffcmodel');
 
-/*---------------------------------------------------------------------------*/
 var model;
 var jsonOut;
 
