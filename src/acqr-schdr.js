@@ -64,9 +64,11 @@ const acquire = (devid, nominalTime, cb) => {
     if (argv.M != null) args.push('-M', argv.m);
     if (argv.json) args.push('-j');
 
-    spawn('./bin/acqr', args)
+    const cmd = './bin/acqr';
+    spawn(cmd, args)
         .on('exit', code => {
-            cb(devid, code);
+            const cmdline = [cmd, ...args].join(' ');
+            cb(devid, code, cmdline);
         });
 }
 
@@ -80,9 +82,12 @@ const scheduleAcquire = (nominalTime, cb) => {
 
         var nwait = parallel.length;
         parallel.forEach(devid => {
-            acquire(devid, nominalTime, (devid, code) => {
-                if (code) console.log('acquire device ' + devid
-                    + ' exited with code ' + code);
+            acquire(devid, nominalTime, (devid, code, cmdline) => {
+                if (code) {
+                    console.error('acquire device ' + devid
+                        + ' exited with code ' + code + '. cmdline:');
+                    console.error(cmdline);
+                }
                 if (! --nwait)
                     serialAndParallel(all.slice(argv.parallelNumber), cb);
             });
