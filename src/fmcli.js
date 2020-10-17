@@ -3,6 +3,7 @@
 
 const { spawn } = require('child_process');
 const readline = require('readline');
+const Model = require('../lib/ffcmodel');
 
 const schdAcqr = argv => {
     const acquire = (devid, ticktime, cb) => {
@@ -81,6 +82,19 @@ const schdAcqr = argv => {
     }));
 };
 
+const housekeeping = argv => {
+    if (isNaN(argv.level1)) {
+        console.error('bad level1 number');
+        return;
+    }
+
+    const model = new Model();
+    model.housekeeping({ level1Days: argv.level1 }, err => {
+        model.stop();
+        if (err) console.error(err.message);
+    });
+};
+
 require('yargs') 
     .scriptName('fmcli')
     .usage('$0 <cmd> [args]')
@@ -132,4 +146,12 @@ require('yargs')
             default: 24,
         });
     }, schdAcqr)
+    .command('hk', 'housekeeping the model', yargs => {
+        yargs.option('a', {
+            alias: 'level1',
+            describe: 'number of days to keep in level1',
+            nargs: 1,
+            default: 7,
+        })
+    }, housekeeping)
     .argv;
