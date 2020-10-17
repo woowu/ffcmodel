@@ -7,10 +7,10 @@ const shell = require('shelljs');
 const dateformat = require('dateformat');
 const Model = require('../lib/ffcmodel');
 
-const acquire = (devid, ntime, realTime, json, cb) => {
+const acquire = (devid, ticktime, acqtime, json, cb) => {
     const metrics = {
         devid,
-        timestamp: parseInt(realTime.valueOf() / 1000),
+        timestamp: parseInt(acqtime.valueOf() / 1000),
         metrics: [],
     };
 
@@ -25,19 +25,18 @@ const acquire = (devid, ntime, realTime, json, cb) => {
             scale: Math.trunc(11 * Math.random()) - 5,
         };
         if (i >= argv.smallMetrics)
-            metrics.metrics[i].timestamp =
-                realTime.valueOf() / 1000 -
-                Math.trunc(3600 * Math.random());
+            metrics.metrics[i].timestamp = metrics.timestamp
+                - Math.trunc(3600 * Math.random());
     }
 
     const model = new Model();
-    model.putDevMetrics(devid, ntime, metrics, err => {
+    model.putDevMetrics(devid, ticktime, metrics, err => {
         model.stop();
         if (err || ! json) return cb(err);
         const jsonName = path.join(process.env['HOME'], '.local/share/ffc/json',
             devid.toString()
             + '-'
-            + dateformat(ntime, 'UTC:yyyymmddhhMMss')
+            + dateformat(ticktime, 'UTC:yyyymmddhhMMss')
             + '.json');
         shell.mkdir('-p', path.dirname(jsonName));
         fs.writeFile(jsonName, JSON.stringify(metrics, null, 2), cb);
@@ -45,18 +44,8 @@ const acquire = (devid, ntime, realTime, json, cb) => {
 };
 
 const argv = require('yargs') 
-    .option('d', {
-        alias: 'devid',
-        describe: 'identity of device to acquire',
-        nargs: 1,
-        demandOption: true,
-    })
-    .option('t', {
-        alias: 'time',
-        describe: 'nominal time, in Epoch',
-        nargs: 1,
-        demandOption: true,
-    })
+    .scriptName('fmacqr')
+    .usage('$0 [options] devid time')
     .option('m', {
         alias: 'smallMetrics',
         describe: 'number of small metrics of each dev',
@@ -81,10 +70,22 @@ const argv = require('yargs')
     })
     .argv;
 
-const ntime = new Date(argv.time * 1000);
-var realTime = new Date(ntime.valueOf() + argv.delay * 1000);
+const devid = argv._[0];
+const time = argv._[1];
+
+if (devid == null) {
+    console.error('missed devid');
+    process.exit(1);
+}
+if (time == null) {
+    console.error('missed time');
+    process.exit(1);
+}
+
+const ticktime = new Date(time * 1000);
+var acqtime = new Date(ticktime.valueOf() + argv.delay * 1000);
 
 console.log(`acquiring device ${argv.d}`);
-acquire(argv.d, ntime, realTime, argv.json, err => {
+acquire(devid, ticktime, acqtime, argv.json, err => {
     if (err) console.error(err.message);
 });
