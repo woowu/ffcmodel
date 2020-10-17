@@ -2,7 +2,7 @@ syntax = "proto3";
 
 message DevMetrics {
     uint32 devid = 1;           /* meter identity */
-    uint32 timestamp = 2;       /* actual acquiring time in Unix Epoc seconds */
+    uint32 timestamp = 2;       /* time of this metrics were generated */
 
     message metric {
         uint32 id = 1;          /* identity of metric */

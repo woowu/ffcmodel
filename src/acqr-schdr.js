@@ -2,6 +2,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const readline = require('readline');
 
 const argv = require('yargs') 
     .option('t', {
@@ -52,28 +53,31 @@ const argv = require('yargs')
     })
     .argv;
 
-const acquire = (devid, nominalTime, cb) => {
+const acquire = (devid, ntime, cb) => {
     const delay = Math.trunc(60 * Math.random());
     const args = [
         '-d', devid.toString(),
-        '-t', (nominalTime.valueOf() / 1000).toString(),
+        '-t', (ntime.valueOf() / 1000).toString(),
         '-l', delay.toString(),
     ];
 
     if (argv.m != null) args.push('-m', argv.m);
-    if (argv.M != null) args.push('-M', argv.m);
+    if (argv.M != null) args.push('-M', argv.M);
     if (argv.json) args.push('-j');
 
     const cmd = './bin/acqr';
-    spawn(cmd, args)
+    const child = spawn(cmd, args)
         .on('exit', code => {
             const cmdline = [cmd, ...args].join(' ');
             cb(devid, code, cmdline);
         });
+
+    const rl = readline.createInterface({ input: child.stderr });
+    rl.on('line', line => console.error(`dev ${devid} error: ${line}`));
 }
 
-const scheduleAcquire = (nominalTime, cb) => {
-    console.log('time ' + nominalTime.toISOString());
+const scheduleAcquire = (ntime, cb) => {
+    console.log('time ' + ntime.toISOString());
 
     const begin = new Date();
     (function serialAndParallel(all, cb) {
@@ -82,7 +86,7 @@ const scheduleAcquire = (nominalTime, cb) => {
 
         var nwait = parallel.length;
         parallel.forEach(devid => {
-            acquire(devid, nominalTime, (devid, code, cmdline) => {
+            acquire(devid, ntime, (devid, code, cmdline) => {
                 if (code) {
                     console.error('acquire device ' + devid
                         + ' exited with code ' + code + '. cmdline:');
