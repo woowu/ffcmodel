@@ -94,5 +94,5 @@ var acqtime = new Date(ticktime.valueOf() + argv.delay * 1000);
 
 console.log(`acquiring device ${devid}`);
 acquire(devid, ticktime, acqtime, argv.json, err => {
-    if (err) console.error(err.message);
+    if (err) console.error(err);
 });

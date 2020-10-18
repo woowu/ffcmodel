@@ -83,13 +83,13 @@ const schdAcqr = argv => {
 };
 
 const housekeeping = argv => {
-    if (isNaN(argv.level1)) {
+    if (isNaN(+argv.level1)) {
         console.error('bad level1 number');
         return;
     }
 
     const model = new Model();
-    model.housekeeping({ level1Days: argv.level1 }, err => {
+    model.housekeeping({ level1Blocks: argv.level1 }, err => {
         model.stop();
         if (err) console.error(err.message);
     });
@@ -149,7 +149,7 @@ require('yargs')
     .command('hk', 'housekeeping the model', yargs => {
         yargs.option('a', {
             alias: 'level1',
-            describe: 'number of days to keep in level1',
+            describe: 'number of blocks to keep in level1',
             nargs: 1,
             default: 7,
         })
