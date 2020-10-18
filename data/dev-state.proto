@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-message DevMetrics {
+message DevState {
     uint32 devid = 1;           /* meter identity */
     uint32 timestamp = 2;       /* time of this metrics were generated */
 

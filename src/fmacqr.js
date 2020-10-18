@@ -5,17 +5,18 @@ const fs = require('fs');
 const path = require('path');
 const shell = require('shelljs');
 const dateformat = require('dateformat');
+const mkdirp = require('mkdirp');
 const Model = require('../lib/ffcmodel');
 
-const acquire = (devid, ticktime, acqtime, json, cb) => {
-    const metrics = {
+const acquire = (devid, ticktime, acqtime, saveJson, cb) => {
+    const devState = {
         devid,
         timestamp: parseInt(acqtime.valueOf() / 1000),
         metrics: [],
     };
 
     for (var i = 0; i < argv.smallMetrics + argv.bigMetrics; ++i) {
-        metrics.metrics[i] = {
+        devState.metrics[i] = {
             id: i + 1,
             status: 0,
             /* random +- integer with 1 to 4 digits */
@@ -25,21 +26,26 @@ const acquire = (devid, ticktime, acqtime, json, cb) => {
             scale: Math.trunc(11 * Math.random()) - 5,
         };
         if (i >= argv.smallMetrics)
-            metrics.metrics[i].timestamp = metrics.timestamp
+            devState.metrics[i].timestamp = devState.timestamp
                 - Math.trunc(3600 * Math.random());
     }
 
     const model = new Model();
-    model.putDevMetrics(devid, ticktime, metrics, err => {
+    model.putDevState(devid, ticktime, devState, err => {
         model.stop();
-        if (err || ! json) return cb(err);
+        if (err || ! saveJson) return cb(err);
+
+        const json = JSON.stringify(devState, null, 2);
         const jsonName = path.join(process.env['HOME'], '.local/share/ffc/json',
             devid.toString()
             + '-'
             + dateformat(ticktime, 'UTC:yyyymmddhhMMss')
             + '.json');
-        shell.mkdir('-p', path.dirname(jsonName));
-        fs.writeFile(jsonName, JSON.stringify(metrics, null, 2), cb);
+        mkdirp(path.dirname(jsonName))
+            .then(() => {
+                fs.writeFile(jsonName, json, cb);
+            })
+            .catch(cb);
     });
 };
 
@@ -66,7 +72,8 @@ const argv = require('yargs')
     })
     .option('j', {
         alias: 'json',
-        describe: 'save metrics in json file',
+        describe: 'save device state json file',
+        type: 'boolean'
     })
     .argv;
 
@@ -85,7 +92,7 @@ if (time == null) {
 const ticktime = new Date(time * 1000);
 var acqtime = new Date(ticktime.valueOf() + argv.delay * 1000);
 
-console.log(`acquiring device ${argv.d}`);
+console.log(`acquiring device ${devid}`);
 acquire(devid, ticktime, acqtime, argv.json, err => {
     if (err) console.error(err.message);
 });
