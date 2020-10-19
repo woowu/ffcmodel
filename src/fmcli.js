@@ -76,7 +76,7 @@ const schdAcqr = argv => {
         });
     }(startTime, 0, (err, tickCnt) => {
         if (err)
-            console.error(err.message);
+            console.error(err);
         else
             console.log(`ttl ${tickCnt} ticks`);
     }));
@@ -91,7 +91,23 @@ const housekeeping = argv => {
     const model = new Model();
     model.housekeeping({ level1Blocks: argv.level1 }, err => {
         model.stop();
-        if (err) console.error(err.message);
+        if (err) console.error(err);
+    });
+};
+
+const prjMetrics = argv => {
+    const time = new Date(argv.time);
+    const devid = +argv.device;
+
+    if (isNaN(time.valueOf())) {
+        console.error('invalid time');
+        return;
+    }
+
+    const model = new Model();
+    model.projectMetrics(devid, time, err => {
+        model.stop();
+        if (err) console.err(err);
     });
 };
 
@@ -154,4 +170,18 @@ require('yargs')
             default: 7,
         })
     }, housekeeping)
+    .command('project', 'project metrics', yargs => {
+        yargs.option('d', {
+            alias: 'device',
+            describe: 'device identity',
+            nargs: 1,
+            demandOption: true,
+        })
+        .optin('t', {
+            alias: 'time',
+            describe: 'do projecting from this time',
+            nargs: 1,
+            demandOption: true,
+        })
+    }, prjMetrics)
     .argv;
