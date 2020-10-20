@@ -105,15 +105,16 @@ const prjMetrics = argv => {
     }
 
     const model = new Model();
-    model.projectMetrics(devid, time, err => {
+    model.projectMetrics(devid, time, err, metrics => {
         model.stop();
         if (err) console.err(err);
+        console.log(metrics);
     });
 };
 
 require('yargs') 
     .scriptName('fmcli')
-    .usage('$0 <cmd> [args]')
+    .usage('$0 <cmd> [options] [args]')
     .command('schd-acqr', 'schedule acquisition', yargs => {
         yargs.option('t', {
             alias: 'ticks',
@@ -171,17 +172,12 @@ require('yargs')
         })
     }, housekeeping)
     .command('project', 'project metrics', yargs => {
-        yargs.option('d', {
-            alias: 'device',
-            describe: 'device identity',
-            nargs: 1,
-            demandOption: true,
+        yargs.positional('device', {
+            describe: 'the device identity for which to do the projecting',
         })
-        .optin('t', {
-            alias: 'time',
-            describe: 'do projecting from this time',
-            nargs: 1,
-            demandOption: true,
+        .positional('time', {
+            describe: 'Time string in "YYYY-MM-DD HH:MM".'
+                + ' Do the projecting from this time',
         })
     }, prjMetrics)
     .argv;
