@@ -115,7 +115,7 @@ const prjMetrics = argv => {
 require('yargs') 
     .scriptName('fmcli')
     .usage('$0 <cmd> [options] [args]')
-    .command('schd-acqr', 'schedule acquisition', yargs => {
+    .command('acqr', 'schedule acquisition', yargs => {
         yargs.option('t', {
             alias: 'ticks',
             describe: 'number of time ticks to run',
@@ -163,7 +163,7 @@ require('yargs')
             default: 24,
         });
     }, schdAcqr)
-    .command('hk', 'housekeeping the model', yargs => {
+    .command('clean', 'housekeeping the model', yargs => {
         yargs.option('a', {
             alias: 'level1',
             describe: 'number of blocks to keep in level1',
