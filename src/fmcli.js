@@ -115,11 +115,14 @@ const prjMetrics = argv => {
         }
     });
 
+    const timeStart = new Date();
     const model = new Model();
     model.projectMetrics(devid, time, metricList, (err, metrics) => {
         model.stop();
+        const timeEnd = new Date();
         if (err) console.err(err);
         console.log('result ', metrics);
+        console.log('used ' + (timeEnd - timeStart) / 1000 + 's');
     });
 };
 
@@ -132,12 +135,15 @@ const timeSpan = argv => {
     };
     devid = +devid;
 
+    const timeStart = new Date();
     const model = new Model();
     model.getDeviceTimeSpan(devid, (err, minTime, maxTime) => {
         model.stop();
+        const timeEnd = new Date();
         if (err) console.error(err);
         console.log('from: ' + dateformat(minTime, 'yyyy-mm-dd HH:MM'));
         console.log('to:   ' + dateformat(maxTime, 'yyyy-mm-dd HH:MM'));
+        console.log('used ' + (timeEnd - timeStart) / 1000 + 's');
     });
 }
 
