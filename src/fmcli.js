@@ -96,19 +96,29 @@ const housekeeping = argv => {
 };
 
 const prjMetrics = argv => {
-    const time = new Date(argv.time);
-    const devid = +argv.device;
+    const devid = +argv._[1];
+    const time = new Date(argv._[2]);
 
     if (isNaN(time.valueOf())) {
         console.error('invalid time');
         return;
     }
 
+    var metricList = [];
+    if (argv.metrics)
+        metricList = argv.metrics.split(',').map(m => +m);
+    metricList.forEach(metricId => {
+        if (isNaN(metricId)) {
+            console.error('bad metric id');
+            process.exit(1);
+        }
+    });
+
     const model = new Model();
-    model.projectMetrics(devid, time, err, metrics => {
+    model.projectMetrics(devid, time, metricList, (err, metrics) => {
         model.stop();
         if (err) console.err(err);
-        console.log(metrics);
+        console.log('result ', metrics);
     });
 };
 
@@ -172,7 +182,12 @@ require('yargs')
         })
     }, housekeeping)
     .command('project', 'project metrics', yargs => {
-        yargs.positional('device', {
+        yargs.option('l', {
+            alias: 'metrics',
+            describe: 'list of comma separated list of metric IDs',
+            nargs: 1,
+        })
+        .positional('device', {
             describe: 'the device identity for which to do the projecting',
         })
         .positional('time', {
