@@ -141,8 +141,8 @@ const timeSpan = argv => {
         model.stop();
         const timeEnd = new Date();
         if (err) console.error(err);
-        console.log('from: ' + dateformat(minTime, 'yyyy-mm-dd HH:MM'));
-        console.log('to:   ' + dateformat(maxTime, 'yyyy-mm-dd HH:MM'));
+        console.log('from: ' + dateformat(minTime, 'UTC:yyyy-mm-dd HH:MM Z'));
+        console.log('to:   ' + dateformat(maxTime, 'UTC:yyyy-mm-dd HH:MM Z'));
         console.log('used ' + (timeEnd - timeStart) / 1000 + 's');
     });
 }
