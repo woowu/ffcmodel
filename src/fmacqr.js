@@ -39,7 +39,7 @@ const acquire = (devid, ticktime, acqtime, saveJson, cb) => {
         const jsonName = path.join(process.env['HOME'], '.local/share/ffc/json',
             devid.toString()
             + '-'
-            + dateformat(ticktime, 'UTC:yyyymmddhhMMss')
+            + dateformat(ticktime, 'UTC:yyyymmddHHMMss')
             + '.json');
         mkdirp(path.dirname(jsonName))
             .then(() => {

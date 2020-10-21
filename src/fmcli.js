@@ -3,6 +3,7 @@
 
 const { spawn } = require('child_process');
 const readline = require('readline');
+const dateformat = require('dateformat');
 const Model = require('../lib/ffcmodel');
 
 const schdAcqr = argv => {
@@ -122,6 +123,24 @@ const prjMetrics = argv => {
     });
 };
 
+const timeSpan = argv => {
+    var devid = argv._[1];
+
+    if (devid == null) {
+        console.error('no devid provided');
+        process.exit(1);
+    };
+    devid = +devid;
+
+    const model = new Model();
+    model.getDeviceTimeSpan(devid, (err, minTime, maxTime) => {
+        model.stop();
+        if (err) console.error(err);
+        console.log('from: ' + dateformat(minTime, 'yyyy-mm-dd HH:MM'));
+        console.log('to:   ' + dateformat(maxTime, 'yyyy-mm-dd HH:MM'));
+    });
+}
+
 require('yargs') 
     .scriptName('fmcli')
     .usage('$0 <cmd> [options] [args]')
@@ -195,4 +214,9 @@ require('yargs')
                 + ' Do the projecting from this time',
         })
     }, prjMetrics)
+    .command('span', 'get time span', yargs => {
+        yargs.positional('device', {
+            describe: 'device identity',
+        })
+    }, timeSpan)
     .argv;
