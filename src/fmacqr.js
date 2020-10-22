@@ -31,7 +31,7 @@ const acquire = (devid, ticktime, acqtime, saveJson, cb) => {
     }
 
     const model = new Model();
-    model.putDevState(devid, ticktime, devState, err => {
+    model.putDeviceState(devid, ticktime, devState, err => {
         model.stop();
         if (err || ! saveJson) return cb(err);
 
