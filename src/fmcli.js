@@ -6,8 +6,42 @@ const readline = require('readline');
 const dateformat = require('dateformat');
 const Model = require('../lib/ffcmodel');
 
+const parseMetricsSpec = spec => {
+    const metrics = new Set();
+
+    spec.split(',').forEach(def => {
+        if (isNaN(+def) && def.search('-') >= 0) {
+            const start = +def.split('-')[0];
+            const end = +def.split('-')[1];
+            for (var i = start; i <= end; ++i) {
+                if (isNaN(i) || i < 0) {
+                    console.error('invalid metric id');
+                    process.exit(1);
+                }
+                metrics.add(i);
+            }
+        } else if (isNaN(+def) || +def < 0) {
+            console.error('invalid metric id ' + def);
+            process.exit(1);
+        } else
+            metrics.add(+def);
+    });
+    return metrics;
+};
+
+const parseIntvlSpec = spec => {
+    const intvl = spec.split(':')[0];
+    const intvlSpec = { intvl, metrics: new Set() };
+
+    for (const m of parseMetricsSpec(spec.split(':')[1]))
+        intvlSpec.metrics.add(m);
+    return intvlSpec;
+};
+
 const schdAcqr = argv => {
-    const acquire = (devid, ticktime, cb) => {
+    const intvlDefs = [];
+
+    const acquire = (devid, ticktime, metrics, cb) => {
         const delay = Math.trunc(60 * Math.random());
         const args = [
             '-l', delay.toString(),
@@ -15,14 +49,13 @@ const schdAcqr = argv => {
             (ticktime.valueOf() / 1000).toString(),
         ];
 
-        if (argv.m != null) args.push('-m', argv.m);
-        if (argv.M != null) args.push('-M', argv.M);
+        args.push('-m', metrics.join(','));
         if (argv.json) args.push('-j');
 
         const cmd = './bin/fmacqr';
+        const cmdline = [cmd, ...args].join(' ');
         const child = spawn(cmd, args)
             .on('exit', code => {
-                const cmdline = [cmd, ...args].join(' ');
                 cb(devid, code, cmdline);
             });
 
@@ -30,9 +63,7 @@ const schdAcqr = argv => {
         rl.on('line', line => console.error(`dev ${devid} error: ${line}`));
     }
 
-    const schedule = (ticktime, cb) => {
-        console.log('time ' + ticktime.toISOString());
-
+    const schedule = (ticktime, metrics, cb) => {
         const begin = new Date();
         (function serialAndParallel(all, cb) {
             const parallel = all.slice(0, argv.parallelNumber);
@@ -40,7 +71,7 @@ const schdAcqr = argv => {
 
             var nwait = parallel.length;
             parallel.forEach(devid => {
-                acquire(devid, ticktime, (devid, code, cmdline) => {
+                acquire(devid, ticktime, metrics, (devid, code, cmdline) => {
                     if (code) {
                         console.error('acquire device ' + devid
                             + ' exited with code ' + code + '. cmdline:');
@@ -62,19 +93,38 @@ const schdAcqr = argv => {
         console.error('invalid time');
         process.exit(1);
     }
+    startTime.setMinutes(0);
+    startTime.setSeconds(0);
+    startTime.setMilliseconds(0);
+
+    argv.intvl.forEach(intvl => {
+       intvlDefs.push(parseIntvlSpec(intvl));
+    });
 
     (function walkTime(time, tickCnt, cb) {
         if (tickCnt == argv.ticks) return cb(null, tickCnt);
 
-        schedule(time, err => {
-            if (err) return cb(err, tickCnt);
-            time.setMinutes(time.getMinutes() + argv.intvl)
+        const metrics = new Set();
+        for (const def of intvlDefs) {
+            if (! (time.getMinutes() % def.intvl))
+                for (const m of def.metrics) metrics.add(m);
+        }
 
-            /* to avoid stack overflow */
-            setTimeout(() => {
-                walkTime(time, tickCnt + 1, cb);
-            }, 1);
-        });
+        const nextMin = new Date(time);
+        nextMin.setMinutes(nextMin.getMinutes() + 1);
+
+        /* to avoid stack overflow */
+        setTimeout(() => {
+            if (metrics.size) {
+                console.log('time ' + time.toISOString(),
+                    'remained ' + (argv.ticks - tickCnt + 1));
+                schedule(time, Array.from(metrics), err => {
+                    if (err) return cb(err, tickCnt);
+                    walkTime(nextMin, tickCnt + 1, cb);
+                });
+            } else
+                walkTime(nextMin, tickCnt, cb);
+        }, 1);
     }(startTime, 0, (err, tickCnt) => {
         if (err)
             console.error(err);
@@ -96,7 +146,7 @@ const housekeeping = argv => {
     });
 };
 
-const prjMetrics = argv => {
+const projectMetrics = argv => {
     const devid = +argv._[1];
     const time = new Date(argv._[2]);
 
@@ -106,14 +156,7 @@ const prjMetrics = argv => {
     }
 
     var metricList = [];
-    if (argv.metrics)
-        metricList = argv.metrics.split(',').map(m => +m);
-    metricList.forEach(metricId => {
-        if (isNaN(metricId)) {
-            console.error('bad metric id');
-            process.exit(1);
-        }
-    });
+    if (argv.metrics) metricList = Array.from(parseMetricsSpec(argv.metrics));
 
     const timeStart = new Date();
     const model = new Model();
@@ -165,21 +208,13 @@ require('yargs')
         })
         .option('i', {
             alias: 'intvl',
-            describe: 'acquisition interval in minutes',
+            describe: 'acquisition interval in minutes, which followed by a\n'
+                + 'metric id list. Multiple -i options is allowed.\n'
+                + 'Examples: -i 15:1-20 ; -i 5:21,70-79'
+                ,
             nargs: 1,
-            default: 15,
-        })
-        .option('m', {
-            alias: 'smallMetrics',
-            describe: 'number of small metrics of each dev',
-            nargs: 1,
-            default: 20,
-        })
-        .option('M', {
-            alias: 'bigMetrics',
-            describe: 'number of big metrics of each dev',
-            nargs: 1,
-            default: 6,
+            demandOption: true,
+            type: 'array',
         })
         .option('j', {
             alias: 'json',
@@ -207,9 +242,10 @@ require('yargs')
         })
     }, housekeeping)
     .command('project', 'project metrics', yargs => {
-        yargs.option('l', {
+        yargs.option('m', {
             alias: 'metrics',
-            describe: 'list of comma separated list of metric IDs',
+            describe: 'list of comma separated list of metric IDs.\n'
+                + 'E.g., -m 1,3,5 ; -m 1-20,70',
             nargs: 1,
         })
         .positional('device', {
@@ -219,7 +255,7 @@ require('yargs')
             describe: 'Time string in "YYYY-MM-DD HH:MM".'
                 + ' Do the projecting from this time',
         })
-    }, prjMetrics)
+    }, projectMetrics)
     .command('span', 'get time span', yargs => {
         yargs.positional('device', {
             describe: 'device identity',
