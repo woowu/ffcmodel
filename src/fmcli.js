@@ -60,7 +60,7 @@ const schdAcqr = argv => {
             const cmdline = [cmd, ...args].join(' ');
             const child = spawn(cmd, args)
                 .on('exit', code => {
-                    cb(devid, code, cmdline);
+                    cb(code, cmdline);
                 });
 
             const rl = readline.createInterface({ input: child.stderr });
@@ -76,7 +76,7 @@ const schdAcqr = argv => {
                     argv.json,
                     err => {
                         model.stop();
-                        cb(devid, err ? 1 : 0);
+                        cb(err);
                     }
                 );
             }());
@@ -90,12 +90,16 @@ const schdAcqr = argv => {
 
             var nwait = parallel.length;
             parallel.forEach(devid => {
-                acquire(devid, ticktime, metrics, argv.fork, (devid, code, cmdline) => {
-                    if (code) {
-                        console.error('acquire device ' + devid
-                            + ' exited with code ' + code + '. cmdline:');
-                        if (cmdline) console.error(cmdline);
+                acquire(devid, ticktime, metrics, argv.fork, (code, cmdline) => {
+                    if  (code == null || typeof code == 'object') {
+                        /* an Error object in no-fork mode */
+                        var err = code;
+                        if (err) return cb(err);
                     }
+                    if (typeof code == 'number' && code)
+                        return cb(Error('acquire device ' + devid
+                            + ' exited with code ' + code + '. cmdline: '
+                            + cmdline));
                     if (! --nwait)
                         serialAndParallel(all.slice(argv.parallelNumber), cb);
                 });
