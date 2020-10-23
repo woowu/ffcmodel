@@ -102,7 +102,8 @@ const schdAcqr = argv => {
             });
         }([...Array(argv.devices).keys()], err => {
             const elapsed = new Date() - begin;
-            console.log(`acquired ${argv.devices} devices in ${elapsed} msecs. avg ${Math.trunc(elapsed/argv.devices)} msecs/dev`);
+            console.log(`acquired ${argv.devices} devices in ${elapsed} msecs.`
+                + ` avg ${Math.round(elapsed/argv.devices)} msecs/dev`);
             cb(err);
         }));
     };
