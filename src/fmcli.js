@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const readline = require('readline');
 const dateformat = require('dateformat');
 const Model = require('../lib/ffcmodel');
+const ffcopr = require('../lib/ffcopr');
 
 const parseMetricsSpec = spec => {
     const metrics = new Set();
