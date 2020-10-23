@@ -42,26 +42,44 @@ const parseIntvlSpec = spec => {
 const schdAcqr = argv => {
     const intvlDefs = [];
 
-    const acquire = (devid, ticktime, metrics, cb) => {
+    const acquire = (devid, ticktime, metrics, fork, cb) => {
+        const ticktimeEpoch = (ticktime.valueOf() / 1000).toString();
         const delay = Math.trunc(60 * Math.random());
-        const args = [
-            '-l', delay.toString(),
-            devid.toString(),
-            (ticktime.valueOf() / 1000).toString(),
-        ];
 
-        args.push('-m', metrics.join(','));
-        if (argv.json) args.push('-j');
+        if (fork) {
+            const args = [
+                '-l', delay.toString(),
+                devid.toString(),
+                ticktimeEpoch,
+            ];
 
-        const cmd = './bin/fmacqr';
-        const cmdline = [cmd, ...args].join(' ');
-        const child = spawn(cmd, args)
-            .on('exit', code => {
-                cb(devid, code, cmdline);
-            });
+            args.push('-m', metrics.join(','));
+            if (argv.json) args.push('-j');
 
-        const rl = readline.createInterface({ input: child.stderr });
-        rl.on('line', line => console.error(`dev ${devid} error: ${line}`));
+            const cmd = './bin/fmacqr';
+            const cmdline = [cmd, ...args].join(' ');
+            const child = spawn(cmd, args)
+                .on('exit', code => {
+                    cb(devid, code, cmdline);
+                });
+
+            const rl = readline.createInterface({ input: child.stderr });
+            rl.on('line', line => console.error(`dev ${devid} error: ${line}`));
+        } else
+            (function () {
+                const model = new Model();
+                ffcopr.acquire(model,
+                    devid,
+                    ticktime,
+                    new Date(ticktime.valueOf() + delay * 1000),
+                    metrics,
+                    argv.json,
+                    err => {
+                        model.stop();
+                        cb(devid, err ? 1 : 0);
+                    }
+                );
+            }());
     }
 
     const schedule = (ticktime, metrics, cb) => {
@@ -72,11 +90,11 @@ const schdAcqr = argv => {
 
             var nwait = parallel.length;
             parallel.forEach(devid => {
-                acquire(devid, ticktime, metrics, (devid, code, cmdline) => {
+                acquire(devid, ticktime, metrics, argv.fork, (devid, code, cmdline) => {
                     if (code) {
                         console.error('acquire device ' + devid
                             + ' exited with code ' + code + '. cmdline:');
-                        console.error(cmdline);
+                        if (cmdline) console.error(cmdline);
                     }
                     if (! --nwait)
                         serialAndParallel(all.slice(argv.parallelNumber), cb);
@@ -228,6 +246,12 @@ require('yargs')
             describe: 'time to start',
             nargs: 1,
             default: '2020-01-22T00:00Z',
+        })
+        .option('f', {
+            alias: 'fork',
+            describe: 'time to start',
+            type: 'boolean',
+            default: true,
         })
         .option('p', {
             alias: 'parallelNumber',
